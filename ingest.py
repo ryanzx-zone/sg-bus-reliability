@@ -15,15 +15,19 @@ load_dotenv(BASE / ".env")
 API_KEY = os.environ["LTA_API_KEY"]
 DATABASE_URL = os.environ["DATABASE_URL"]
 
+# My commute to NUS, two routes:
+#   A: 61 to Opp Maju Camp, then 151
+#   B: 157/174/970 to Opp King Albert Pk, walk across, then 151
 STOPS = [
-    "83139",
-    "52009",  # Toa Payoh Int
-    "84009",  # Bedok Int
-    "75009",  # Tampines Int
-    "46009",  # Woodlands Int
-    "22009",  # Boon Lay Int
-    "59009",  # Yishun Int
-    "01012",
+    "42189",  # The Hillford: home, board leg 1 (both routes)
+    "42159",  # Opp Beauty World Stn: leg 1 midpoint, traffic hotspot
+    "42059",  # Opp King Albert Pk Stn: route B, get off
+    "41081",  # Sixth Ave Stn: 151 upstream, is it already late?
+    "42051",  # King Albert Pk Stn: route B, board 151
+    "42149",  # Aft Bt Timah Rd: 61 and 151 both stop here, early-transfer option
+    "12089",  # Opp Maju Camp: route A, switch 61 -> 151
+    "17099",  # UTown - Cendana: leg 2 midpoint
+    "16181",  # Ctrl Lib: destination
 ]
 
 CREATE_TABLE = """
