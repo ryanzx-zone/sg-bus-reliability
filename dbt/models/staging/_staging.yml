@@ -1,0 +1,52 @@
+version: 2
+
+models:
+  - name: stg_arrivals
+    description: One row per bus prediction (poll, stop, service, slot), unpacked from raw JSON.
+    data_tests:
+      - unique:
+          column_name: "(polled_at::text || '|' || bus_stop_code || '|' || service_no || '|' || slot)"
+    columns:
+      - name: polled_at
+        data_tests: [not_null]
+      - name: bus_stop_code
+        data_tests: [not_null]
+      - name: service_no
+        data_tests: [not_null]
+      - name: slot
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [1, 2, 3]
+      - name: estimated_arrival
+        data_tests: [not_null]
+      - name: is_monitored
+        data_tests: [not_null]
+
+  - name: stg_bus_stops
+    description: One row per bus stop in Singapore.
+    columns:
+      - name: bus_stop_code
+        data_tests: [unique, not_null]
+
+  - name: stg_bus_routes
+    description: One row per stop on each service's route.
+    data_tests:
+      - unique:
+          column_name: "(service_no || '|' || direction || '|' || stop_sequence)"
+    columns:
+      - name: bus_stop_code
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_bus_stops')
+                field: bus_stop_code
+              config:
+                severity: warn   # LTA's datasets aren't always in sync; flag it, don't block
+
+  - name: stg_bus_services
+    description: One row per service per direction, with scheduled frequencies in minutes.
+    data_tests:
+      - unique:
+          column_name: "(service_no || '|' || direction)"

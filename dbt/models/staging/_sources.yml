@@ -1,0 +1,11 @@
+version: 2
+
+sources:
+  - name: raw
+    description: Raw data exactly as loaded by the Python scripts. Never modified by dbt.
+    schema: public
+    tables:
+      - name: raw_arrivals
+        description: One row per stop per poll (every 5 min), full BusArrival API response as JSON. Loaded by ingest.py.
+      - name: raw_reference
+        description: LTA reference datasets (BusStops, BusRoutes, BusServices), one row per record as JSON. Loaded by load_reference.py.

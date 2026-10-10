@@ -4,7 +4,7 @@
 
 This is the engineering log for the project. It records what was built, the problems hit, how each was diagnosed and fixed, and how the work maps to core data engineering concepts.
 
-**Status:** Day 2 of 7. Ingestion is live in the cloud; the raw → clean transform is working.
+**Status:** Day 3 of 7. Ingestion has been live since 7 Oct, with 98.5% of polls on schedule. Transformations moved to dbt, and 26 automated tests pass.
 
 ---
 
@@ -27,18 +27,23 @@ None of these are published anywhere. LTA's API only gives live predictions, so 
 ```mermaid
 flowchart LR
     A[cron-job.org<br/>every 5 min] -->|POST workflow_dispatch| B[GitHub Actions<br/>ingest.py]
-    B -->|GET BusArrival x8 stops| C[LTA DataMall API]
-    B -->|one atomic batch| D[(Neon Postgres<br/>raw_arrivals<br/>JSONB)]
-    D -->|transform.py<br/>SQL| E[(clean_arrivals<br/>typed, 1 row per prediction)]
-    E -.->|Day 4| F[(metrics tables)]
+    B -->|GET BusArrival x9 stops| C[LTA DataMall API]
+    B -->|one atomic batch| D[(public.raw_arrivals<br/>JSONB)]
+    R[load_reference.py<br/>weekly / manual] -->|BusStops, BusRoutes,<br/>BusServices| D2[(public.raw_reference<br/>JSONB)]
+    D --> S[dbt staging<br/>stg_*]
+    D2 --> S
+    SEED[seed: my_commute.csv] --> M
+    S --> M[dbt marts<br/>dim_stops, dim_routes,<br/>commute_legs]
+    M -.->|Day 4| F[metrics models]
     F -.->|Day 6| G[Streamlit dashboard]
 ```
 
-| Layer | Table | Grain | Purpose |
+| Layer | Schema | Models | Purpose |
 |---|---|---|---|
-| Raw | `raw_arrivals` | 1 row per stop per poll | Exact API response, never modified. The replay source if any later logic is wrong. |
-| Clean | `clean_arrivals` | 1 row per (poll, stop, service, slot) | Flattened, typed, null-handled, deduplicated. |
-| Metrics | *(planned)* | per service / stop / hour | Reliability answers. |
+| Raw | `public` | `raw_arrivals`, `raw_reference` | Exact API responses, never modified. The replay source if any later logic is wrong. |
+| Staging | `analytics` | `stg_arrivals`, `stg_bus_stops`, `stg_bus_routes`, `stg_bus_services` | One model per source entity: unpacked, typed, renamed, sentinel values → `NULL`. No business logic. |
+| Marts | `analytics` | `dim_stops`, `dim_routes`, `commute_legs` | Joined, analysis-ready tables. |
+| Metrics | `analytics` | *(Day 4)* | Reliability answers. |
 
 ---
 
@@ -50,11 +55,12 @@ flowchart LR
 | **LTA DataMall API** | Source | Free, real, live, and messy enough to need real cleaning. |
 | **PostgreSQL (Neon, serverless)** | Storage + transform engine | Free tier with no credit card, Singapore region. `JSONB` lets raw responses be stored as-is and parsed in SQL later. |
 | **SQL** | Transformations | Transform inside the database (ELT). SQL is the language every DE interview tests. |
+| **dbt** (dbt-core + dbt-postgres) | Transformation framework | Introduced on Day 3, once there were several dependent SQL models. It runs them in dependency order (`ref()`), tests them, and documents them. |
 | **GitHub Actions** | Compute / job runner | Free on public repos; secrets management built in; runs without a laptop being on. |
 | **cron-job.org** | Scheduler | GitHub's own cron proved unreliable (see Incident 6). An external trigger calling `workflow_dispatch` is precise. |
 | **Git + GitHub** | Version control | Code, SQL and pipeline config are all versioned together. |
 
-**Deliberately not used (yet):** Spark, Kafka, Airflow, dbt. At this data volume (≈100 KB per poll) they add complexity without solving a real problem. The plan is to introduce each one only once the pain it solves is felt. For example, dbt arrives once there are enough SQL models that dependency ordering and testing become painful by hand.
+**Deliberately not used:** Spark and Kafka. The dataset is tens of MB, and polling every 5 minutes is batch, not a stream, so neither solves a real problem here. **Airflow** is planned as a week-2 upgrade, once ingest → dbt → checks form a chain worth orchestrating, with retries and backfills. Each tool is introduced only once the pain it solves is actually felt.
 
 ---
 
@@ -70,16 +76,34 @@ flowchart LR
 
 Unique on `(bus_stop_code, polled_at)`.
 
-### `clean_arrivals`
+### `raw_reference`
 | Column | Type | Notes |
 |---|---|---|
-| `polled_at`, `bus_stop_code`, `service_no`, `slot` | | **Primary key.** `slot` 1–3 = next bus / 2nd / 3rd |
+| `dataset` | `TEXT` | `BusStops` (5,210), `BusRoutes` (26,829) or `BusServices` (801) |
+| `loaded_at` | `TIMESTAMPTZ` | When this copy was loaded |
+| `payload` | `JSONB` | One LTA record, untouched |
+
+Each dataset is replaced as a whole inside one transaction, so readers never see a half-loaded copy.
+
+### `stg_arrivals` (dbt)
+| Column | Type | Notes |
+|---|---|---|
+| `polled_at`, `bus_stop_code`, `service_no`, `slot` | | **Grain** (tested unique). `slot` 1–3 = next bus / 2nd / 3rd |
 | `estimated_arrival` | `TIMESTAMPTZ` | Parsed from ISO-8601 string |
 | `minutes_away` | `NUMERIC(6,1)` | Derived: ETA minus poll time |
 | `is_monitored` | `BOOLEAN` | `true` = live GPS, `false` = timetable estimate |
 | `latitude`, `longitude` | `DOUBLE PRECISION` | `"0.0"` and `""` mapped to `NULL` (no GPS fix) |
 | `crowd_level`, `bus_type`, `is_wheelchair_ok` | | Decoded from LTA codes |
 | `origin_code`, `destination_code`, `visit_number` | | Route context; `visit_number = 2` on loop services |
+
+### Other dbt models
+| Model | Grain | Notes |
+|---|---|---|
+| `stg_bus_services` | service × direction | Scheduled frequencies parsed from messy text (`"07-12"`, `"8"`, `"-"`, `"00-00"`) into min/max minutes by the `freq_minutes` macro |
+| `dim_stops` | stop | Names, coordinates, number of services, `is_tracked` flag |
+| `dim_routes` | service × direction × stop sequence | Every route stop by stop, with cumulative distance and scheduled frequency |
+| `my_commute` (seed) | route × leg × service | Hand-maintained CSV defining the two commute routes |
+| `commute_legs` | route × leg × service | Seed enriched with route positions, stop counts and ride distance. Route A = 7.4 km / 17 stops; Route B = 8.2 km / 19 stops |
 
 ---
 
@@ -100,6 +124,14 @@ Unique on `(bus_stop_code, polled_at)`.
 - Validated the transform: the row count matches an independent count of non-empty predictions in the raw JSON, there are zero nulls in key columns, and a rerun adds zero rows.
 - Profiled the data and found that interchange stops are almost entirely timetable estimates (Incident 7).
 - Wrote `explore_route.py` to query LTA's route reference data (≈26k rows, paginated), and used it to model the commute and pick 9 stops.
+
+### Day 3 (10 Oct 2026): Reference data and dbt
+- Health check after 3 days: 941 snapshots since the stop change, 98.5% within 5.5 min of the previous one, longest gap 15 min. 940 of 941 snapshots captured all 9 stops.
+- Wrote `load_reference.py` to load LTA's BusStops, BusRoutes and BusServices into `raw_reference`, with an atomic swap per dataset. Pulled the shared LTA session and retry logic into `lta.py`.
+- Set up a project virtualenv and a dbt project (`dbt/`). `run_dbt.py` converts the single `DATABASE_URL` secret into dbt's connection variables, so no secrets live in `profiles.yml`.
+- Ported the Day 2 SQL into `stg_arrivals` (142k rows) and retired `transform.py`.
+- Built staging models for stops, routes and services, a `freq_minutes` macro, the `dim_stops` / `dim_routes` marts, a seed defining the commute, and `commute_legs`.
+- Added 18 data tests plus a custom (singular) test that checks each commute leg's bus really serves both stops in the right order. `dbt build`: **26/26 pass**.
 
 ---
 
@@ -140,7 +172,7 @@ Each entry follows **symptom → root cause → fix → lesson**.
 - **Lesson:** **"all runs succeeded" is not the same as "the pipeline is healthy."** Monitor freshness and volume, not just job status. This becomes an automated check on Day 5.
 
 ### Incident 7: the chosen stops mostly measure the timetable, not reality
-- **Symptom:** while profiling `clean_arrivals`:
+- **Symptom:** while profiling the cleaned arrivals:
 
   | Stop type | Predictions with live GPS |
   |---|---|
@@ -170,7 +202,13 @@ Each entry follows **symptom → root cause → fix → lesson**.
 |---|---|
 | **Ingestion / extract** | `ingest.py` polling a REST API |
 | **ELT** (load raw, transform in the warehouse) | Raw JSON loaded first; all parsing done in SQL inside Postgres |
-| **Raw / clean layers** (bronze / silver) | `raw_arrivals` is immutable; `clean_arrivals` is derived and can be rebuilt any time |
+| **Layered modelling** (raw → staging → marts) | Raw tables are immutable; dbt staging and mart models are derived and can be rebuilt any time |
+| **Transformation DAG** | dbt `ref()` / `source()` infer dependencies, so models always build in the right order |
+| **Dimensional modelling** | `dim_stops` and `dim_routes` describe *things*; arrival facts describe *events* |
+| **Reference data** | Slowly changing LTA datasets loaded on their own schedule, separate from high-frequency facts |
+| **Data tests** | Generic tests (unique, not_null, accepted_values, relationships) plus a custom singular test for business rules |
+| **Reusable SQL** | `freq_minutes` macro applied to eight messy frequency columns |
+| **Seeds** | A hand-maintained CSV (`my_commute`) versioned with the code |
 | **Schema-on-read** | `JSONB` stores the response as-is; structure is applied at transform time |
 | **Idempotency** | `ON CONFLICT DO NOTHING` on natural keys; reruns produce no duplicates (verified) |
 | **Atomicity** | Each ingest run is a single transaction |
@@ -201,7 +239,7 @@ Each entry follows **symptom → root cause → fix → lesson**.
 
 | Day | Work | Concepts |
 |---|---|---|
-| 3 | Add `dim_stops` and `dim_routes` from LTA reference APIs; model the two commute routes | Dimensional modelling, reference data |
+| ~~3~~ | ✅ Reference data, dbt project, dims, commute model, 26 tests | Dimensional modelling, dbt |
 | 4 | Metrics: ETA error, headways (`LAG`), bunching, ghost buses (gaps-and-islands) | Window functions, sessionisation |
 | 5 | Data quality checks that fail the pipeline: freshness, volume vs expected, nulls, uniqueness | Data contracts, observability |
 | 6 | Incremental transform (process only new raw rows); Streamlit dashboard | Incremental loads, serving layer |

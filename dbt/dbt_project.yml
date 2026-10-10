@@ -1,0 +1,26 @@
+name: sg_bus
+version: "1.0.0"
+profile: sg_bus
+
+model-paths: ["models"]
+seed-paths: ["seeds"]
+macro-paths: ["macros"]
+test-paths: ["tests"]
+
+models:
+  sg_bus:
+    staging:
+      +materialized: view   # thin cleanup layer, cheap to recompute
+    marts:
+      +materialized: table  # what dashboards and analysis read from
+
+seeds:
+  sg_bus:
+    my_commute:
+      +column_types:
+        route: text
+        leg: int
+        service_no: text
+        direction: int
+        board_stop: text
+        alight_stop: text

@@ -1,0 +1,15 @@
+# Connection settings. No secrets here: run_dbt.py fills these in from .env
+# locally, and from the DATABASE_URL secret on GitHub Actions.
+sg_bus:
+  target: neon
+  outputs:
+    neon:
+      type: postgres
+      host: "{{ env_var('PGHOST') }}"
+      user: "{{ env_var('PGUSER') }}"
+      password: "{{ env_var('PGPASSWORD') }}"
+      dbname: "{{ env_var('PGDATABASE') }}"
+      port: 5432
+      schema: analytics   # dbt builds everything here; raw tables stay in public
+      sslmode: require
+      threads: 4

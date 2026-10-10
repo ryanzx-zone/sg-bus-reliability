@@ -1,0 +1,23 @@
+version: 2
+
+models:
+  - name: dim_stops
+    description: One row per bus stop, with service count and whether we poll it.
+    columns:
+      - name: bus_stop_code
+        data_tests: [unique, not_null]
+
+  - name: dim_routes
+    description: Every service's route, stop by stop, with names and scheduled frequencies.
+    columns:
+      - name: service_no
+        data_tests: [not_null]
+
+  - name: commute_legs
+    description: My two routes from home (42189) to NUS Central Library (16181), one row per route, leg and service.
+    columns:
+      - name: route
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['A', 'B']
