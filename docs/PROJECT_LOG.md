@@ -134,6 +134,13 @@ Each dataset is replaced as a whole inside one transaction, so readers never see
 - Added 18 data tests plus a custom (singular) test that checks each commute leg's bus really serves both stops in the right order. `dbt build`: **26/26 pass**.
 - Extended tracking to the evening trip home (Information Technology, NUS → Signature Pk Condo). The route data showed it mirrors the morning: route A switches 151 → 61 at Clementi N'hood Pk (across the road from Opp Maju Camp), and route B switches 151 → 157/174/970 at King Albert Park, reusing two stops already tracked. That's 5 new stops, 14 in total. The seed gained a `trip` column (`to_nus` / `to_home`); **27/27 tests pass**.
 
+### Day 4 (10 Oct 2026): Reconstructing what actually happened
+- **Core problem:** LTA publishes predictions, not events. There is no bus ID and no "arrived at" record.
+- **Approach:** track each bus across polls by ETA continuity (`int_bus_observations`). For each poll, test whether 0, 1 or 2 buses have left the front of the queue since the last poll, and keep whichever alignment minimises the average ETA difference. A running sum of those shifts gives each bus a stable index, so every prediction gets a `call_id`. Gaps of more than 7 minutes between polls start a new session instead of guessing across missing data (sessionisation).
+- **Outcome per call** (`fct_bus_calls`): **arrived** (its last ETA fell before the next poll), **vanished** (it disappeared while still predicted minutes away: a ghost bus) or **unknown** (data ended). Across the commute stops: 88% arrived, 3% vanished, 9% unknown.
+- **Validated** against a hand-read trace (151 at Opp Maju Camp, Thu 8 Oct 07:30–08:20). The model reproduced every arrival, including a 15-minute peak-hour gap followed by two buses 1.6 minutes apart.
+- Built `fct_predictions` (each prediction vs. outcome) and `fct_headways` (real gap between buses vs. LTA's scheduled frequency for that period). 35/35 tests pass.
+
 ---
 
 ## 6. Problems faced and how they were solved
@@ -187,6 +194,12 @@ Each entry follows **symptom → root cause → fix → lesson**.
 
   Stops were chosen from LTA's `BusRoutes` reference data, not by hand: boarding, transfer and alighting stops for both routes, plus upstream and midpoint stops to see where delay builds. Live-GPS coverage on the next bus went from **6% to 97%** (63 of 65).
 - **Lesson:** **profile the data before building metrics on it.** The bias would have quietly flattened every reliability number.
+
+### Incident 8: an accuracy metric that graded itself
+- **Symptom:** the first cut of ETA accuracy showed predictions made 0–3 minutes out had **exactly zero error** at the median, p10 and p90. That's too good to be true.
+- **Root cause:** a bus's arrival time is *estimated from* its final prediction, so the final prediction was being compared with itself. Those rows were 15,689 of the 16,220 predictions in that bucket.
+- **Fix:** flag the final sighting as `is_ground_truth` and give it no error. The 0–3 min bucket now has 531 honest rows, with a median error of +1.4 min and a long tail (p90 +7.2 min) from buses showing "arriving" for 5+ minutes.
+- **Lesson:** when ground truth is *derived* from the same data you're evaluating, check the metric can't trivially score itself. Perfect numbers are a bug until proven otherwise.
 
 ### Smaller gotchas
 - **Paginated downloads dropped mid-way:** about 50 back-to-back requests, each on a new connection, got reset by the server at around 14k rows. Fix: one reused `requests.Session` with automatic retries and exponential backoff.

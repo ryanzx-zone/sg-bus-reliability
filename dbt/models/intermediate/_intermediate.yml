@@ -1,0 +1,17 @@
+version: 2
+
+models:
+  - name: int_bus_polls
+    description: One row per stop, service and poll, with the three predicted buses side by side and the previous poll's predictions.
+    data_tests:
+      - unique:
+          column_name: "(bus_stop_code || '|' || service_no || '|' || polled_at::text)"
+
+  - name: int_bus_observations
+    description: Every prediction tagged with a call_id that follows the same bus across polls, matched by ETA continuity.
+    data_tests:
+      - unique:
+          column_name: "(call_id || '|' || polled_at::text)"
+    columns:
+      - name: call_id
+        data_tests: [not_null]
