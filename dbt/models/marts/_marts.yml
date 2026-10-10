@@ -14,8 +14,15 @@ models:
         data_tests: [not_null]
 
   - name: commute_legs
-    description: My two routes from home (42189) to NUS Central Library (16181), one row per route, leg and service.
+    description: >
+      My commute both ways, one row per trip, route, leg and service.
+      to_nus = The Hillford (42189) to Ctrl Lib (16181); to_home = Information Technology (16189) to Signature Pk Condo (42171).
     columns:
+      - name: trip
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['to_nus', 'to_home']
       - name: route
         data_tests:
           - accepted_values:

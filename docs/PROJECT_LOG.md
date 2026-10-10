@@ -27,7 +27,7 @@ None of these are published anywhere. LTA's API only gives live predictions, so 
 ```mermaid
 flowchart LR
     A[cron-job.org<br/>every 5 min] -->|POST workflow_dispatch| B[GitHub Actions<br/>ingest.py]
-    B -->|GET BusArrival x9 stops| C[LTA DataMall API]
+    B -->|GET BusArrival x14 stops| C[LTA DataMall API]
     B -->|one atomic batch| D[(public.raw_arrivals<br/>JSONB)]
     R[load_reference.py<br/>weekly / manual] -->|BusStops, BusRoutes,<br/>BusServices| D2[(public.raw_reference<br/>JSONB)]
     D --> S[dbt staging<br/>stg_*]
@@ -102,8 +102,8 @@ Each dataset is replaced as a whole inside one transaction, so readers never see
 | `stg_bus_services` | service × direction | Scheduled frequencies parsed from messy text (`"07-12"`, `"8"`, `"-"`, `"00-00"`) into min/max minutes by the `freq_minutes` macro |
 | `dim_stops` | stop | Names, coordinates, number of services, `is_tracked` flag |
 | `dim_routes` | service × direction × stop sequence | Every route stop by stop, with cumulative distance and scheduled frequency |
-| `my_commute` (seed) | route × leg × service | Hand-maintained CSV defining the two commute routes |
-| `commute_legs` | route × leg × service | Seed enriched with route positions, stop counts and ride distance. Route A = 7.4 km / 17 stops; Route B = 8.2 km / 19 stops |
+| `my_commute` (seed) | trip × route × leg × service | Hand-maintained CSV defining both routes in both directions |
+| `commute_legs` | trip × route × leg × service | Seed enriched with route positions, stop counts and ride distance. To NUS: A = 7.4 km / 17 stops, B = 8.2 km / 19 stops. To home: A = 6.6 km / 15 stops, B = 7.5 km / 17 stops |
 
 ---
 
@@ -132,6 +132,7 @@ Each dataset is replaced as a whole inside one transaction, so readers never see
 - Ported the Day 2 SQL into `stg_arrivals` (142k rows) and retired `transform.py`.
 - Built staging models for stops, routes and services, a `freq_minutes` macro, the `dim_stops` / `dim_routes` marts, a seed defining the commute, and `commute_legs`.
 - Added 18 data tests plus a custom (singular) test that checks each commute leg's bus really serves both stops in the right order. `dbt build`: **26/26 pass**.
+- Extended tracking to the evening trip home (Information Technology, NUS → Signature Pk Condo). The route data showed it mirrors the morning: route A switches 151 → 61 at Clementi N'hood Pk (across the road from Opp Maju Camp), and route B switches 151 → 157/174/970 at King Albert Park, reusing two stops already tracked. That's 5 new stops, 14 in total. The seed gained a `trip` column (`to_nus` / `to_home`); **27/27 tests pass**.
 
 ---
 

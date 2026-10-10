@@ -1,10 +1,11 @@
--- My two routes to NUS, one row per (route, leg, service), enriched from LTA's
--- route data: where in the route I board and alight, and how far I ride.
+-- My two routes each way between home and NUS, one row per (trip, route, leg, service),
+-- enriched from LTA's route data: where I board and alight, and how far I ride.
 with legs as (
     select * from {{ ref('my_commute') }}
 )
 
 select
+    l.trip,
     l.route,
     l.leg,
     l.service_no,

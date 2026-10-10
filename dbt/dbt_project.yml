@@ -18,6 +18,7 @@ seeds:
   sg_bus:
     my_commute:
       +column_types:
+        trip: text
         route: text
         leg: int
         service_no: text

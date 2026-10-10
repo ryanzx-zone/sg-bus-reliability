@@ -15,19 +15,26 @@ load_dotenv(BASE / ".env")
 API_KEY = os.environ["LTA_API_KEY"]
 DATABASE_URL = os.environ["DATABASE_URL"]
 
-# My commute to NUS, two routes:
-#   A: 61 to Opp Maju Camp, then 151
-#   B: 157/174/970 to Opp King Albert Pk, walk across, then 151
+# My commute between home and NUS, two routes each way:
+#   A: 61 <-> 151, switching at Maju Camp (opposite stops each way)
+#   B: 157/174/970 <-> 151, switching at King Albert Park (walk across the road)
 STOPS = [
+    # To NUS (morning)
     "42189",  # The Hillford: home, board leg 1 (both routes)
     "42159",  # Opp Beauty World Stn: leg 1 midpoint, traffic hotspot
-    "42059",  # Opp King Albert Pk Stn: route B, get off
+    "42059",  # Opp King Albert Pk Stn: route B get off (also route B home: get off 151)
     "41081",  # Sixth Ave Stn: 151 upstream, is it already late?
-    "42051",  # King Albert Pk Stn: route B, board 151
+    "42051",  # King Albert Pk Stn: route B board 151 (also route B home: board 157/174/970)
     "42149",  # Aft Bt Timah Rd: 61 and 151 both stop here, early-transfer option
     "12089",  # Opp Maju Camp: route A, switch 61 -> 151
     "17099",  # UTown - Cendana: leg 2 midpoint
     "16181",  # Ctrl Lib: destination
+    # To home (evening)
+    "16189",  # Information Technology: board 151 at NUS
+    "12081",  # Clementi N'hood Pk: route A, switch 151 -> 61 (across from Maju Camp)
+    "42141",  # Bef Dunearn Rd: last stop shared by 151 and 61, late-transfer option
+    "42151",  # Beauty World Stn Exit C: leg 2 midpoint
+    "42171",  # Signature Pk Condo: home, get off
 ]
 
 CREATE_TABLE = """
